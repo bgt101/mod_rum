@@ -1,0 +1,669 @@
+<!--
+    Copyright 2015 CBS Interactive Inc.
+
+    Licensed under the Apache License, Version 2.0 (the "License");
+    you may not use this file except in compliance with the License.
+    You may obtain a copy of the License at
+
+         http://www.apache.org/licenses/LICENSE-2.0
+
+    Unless required by applicable law or agreed to in writing, software
+    distributed under the License is distributed on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+    See the License for the specific language governing permissions and
+    limitations under the License.
+
+
+    CBS Interactive accepts contributions to software products and free
+    and open-source projects owned, licensed, managed, or maintained by
+    CBS Interactive submitted under the terms of the CBS Interactive
+    Contribution License Agreement (the "Contribution Agreement"); you may
+    not submit software to CBS Interactive for inclusion in a CBS
+    Interactive product or project unless you agree to the terms of the
+    CBS Interactive Contribution License Agreement or have executed a
+    separate agreement with CBS Interactive governing the use of such
+    submission. A copy of the Contribution Agreement should have been
+    included with the software. You may also obtain a copy of the
+    Contribution Agreement at
+    http://www.cbsinteractive.com/cbs-interactive-software-grant-and-contribution-license-agreement/.
+-->
+
+
+
+<RumConf>
+
+
+
+  <!--
+      Lua chunks used to load external modules and to define global
+      variables; executed right after the creation of each Lua VM; the
+      "rum" module is not available to chunks at this stage. First,
+      chunks in all <Script> sections are executed in order, and then
+      chunks in all <ScriptFile> sections are executed in order.
+    -->
+  <Definitions>
+
+
+    <Script>
+      <![CDATA[
+         -- define some global variables
+         someglobal1 = 1
+         someglobal2 = 2
+
+         -- load bitlib module
+         require("bit")
+      ]]>
+    </Script>
+
+
+    <Script>
+      <![CDATA[
+         -- global variables defined in definition chunks already
+         -- executed are available
+         someglobal3 = someglobal1 + someglobal2
+
+         -- load Lua chunk; entries for the path specified using the
+         -- RumBaseDir httpd.conf directive are added to package.path
+         -- and package.cpath, so relative paths can be used; note,
+         -- the ".lua" or ".so" extensions must be left off
+         require("conf/map-table-1")
+      ]]>
+    </Script>
+
+
+    <!--
+        Load a Lua chunk from a file; when relative paths are used,
+        they are relative to the directory specified using the
+        RumBaseDir httpd.conf directive.
+      -->
+    <ScriptFile>
+      conf/map-table-2.lua
+    </ScriptFile>
+
+
+    <ScriptFile>
+      conf/dump-request.lua
+    </ScriptFile>
+
+
+  </Definitions>
+
+
+
+  <!--
+      Lua chunks executed before each Lua action
+    -->
+  <CommonPreAction>
+
+    <Script>
+      <![CDATA[
+        rum.core.log_info("BEG common-pre-action")
+
+        -- shorthand
+        r = rum.request
+        puts = rum.core.puts
+
+        rum.core.log_info("END common-pre-action")
+      ]]>
+    </Script>
+
+    <ScriptFile>
+      conf/common-pre-action.lua
+    </ScriptFile>
+
+  </CommonPreAction>
+
+
+
+  <!--
+      optional custom error handler; this is identical to the default
+      error handler and is therefore unnecessary; only shown to serve
+      as an example
+  -->
+  <ErrorHandler>
+    <Script>
+      <![CDATA[
+         return debug.traceback(..., 2)
+      ]]>
+    </Script>
+  </ErrorHandler>
+
+
+
+  <Rules>
+
+    <!--
+        rule which sets the IP address of the remote client in the
+        request from the X-X-FORWARDED-FOR header
+      -->
+    <Rule>
+      <Actions>
+        <Script>
+          <![CDATA[
+             local rum = rum
+             local rum_core = rum.core
+             rum_core.log_info("BEG deforward action")
+
+             local request = rum.request
+             local ip = request.headers_in:get("X-X-FORWARDED-FOR")
+             if ip then
+                request.connection.remote_ip = ip
+                rum_core.log_info("deforwarded IP: " .. ip)
+             end
+
+             rum_core.log_info("END deforward action")
+          ]]>
+        </Script>
+      </Actions>
+    </Rule>
+
+
+
+
+    <!--
+        rule which demonstrates getting various info about the request
+        and the matched conditions using the RUM API
+      -->
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern trailingSlashOptional="true">
+            showme/**
+          </Pattern>
+          <RegEx>
+            .*/(everything.*)$
+          </RegEx>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          <![CDATA[
+             rum.core.log_info("BEG showme action")
+
+
+             -- set the content-type for this generated page
+             rum.core.set_content_type("text/plain")
+
+
+             -- be polite and say hello
+             puts("hello world from RUM!!!")
+
+
+             -- show the RUM state if the showstate query arg is present
+             if rum.queryarg.get("showstate") then
+                puts("\n\n" .. rum.core.state());
+             end
+
+
+             -- define function to print out the request's fields
+             function rshow(f)
+                puts("rum.request." .. f .. ": " .. tostring(r[f]))
+             end
+
+
+             -- define function to print out the request's functions
+             function rfshow(f)
+                puts("rum.request:" .. f .. "(): " .. tostring(r[f](r)))
+             end
+
+
+             -- define function to print out the connection's fields
+             function cshow(f)
+                puts("rum.request.connection." .. f .. ": " ..
+                     tostring(r.connection[f]))
+             end
+
+
+             -- define function to print out the server's fields
+             function sshow(f)
+                puts("rum.request.server." .. f .. ": " ..
+                     tostring(r.server[f]))
+             end
+
+
+             -- print some stuff from the request
+             puts("\n\nrequest functions:")
+             rfshow("is_internal_redirect")
+             rfshow("is_subrequest")
+             rfshow("is_initial_req")
+             rfshow("get_server_name")
+             rfshow("get_server_port")
+             rfshow("http_scheme")
+
+             puts("\n\nrequest fields:")
+             rshow("the_request")
+             rshow("protocol")
+             rshow("hostname")
+             rshow("method")
+             rshow("unparsed_uri")
+             rshow("uri")
+             rshow("args")
+
+
+             puts("\n\nconnection fields:")
+             cshow("remote_ip")
+             cshow("keepalives")
+
+             puts("\n\nserver fields:")
+             sshow("defn_name")
+             sshow("defn_line_number")
+             sshow("server_admin")
+             sshow("server_hostname")
+             sshow("loglevel")
+             sshow("is_virtual")
+             sshow("keep_alive")
+             sshow("keep_alive_max")
+             sshow("keep_alive_timeout")
+             sshow("timeout")
+
+
+             -- was there a trailing slash?
+             if rum.path.trailing_slash() then
+                 puts("\n\ntrailing slash is present")
+             else
+                 puts("\n\ntrailing slash is absent")
+             end
+
+
+             -- print out request headers
+             puts("\n\nrequest headers:")
+             keys = rum.request.headers_in:keys()
+             for i, v in ipairs(keys) do
+                puts("  " .. v .. ":")
+                a = rum.request.headers_in:mget(v)
+                for j, v2 in ipairs(a) do
+                   puts("    " .. tostring(v2))
+                end
+             end
+
+
+             -- print out raw request headers
+             puts("\n\nraw request headers:")
+             keys = rum.request.headers_in:keys()
+             for i, v in ipairs(keys) do
+                puts("  " .. v .. ":")
+                a = rum.request.headers_in:raw_mget(v)
+                for j, v2 in ipairs(a) do
+                   puts("    " .. tostring(v2))
+                end
+             end
+
+
+             -- print all cookie names and values
+             puts("\n\ncookie names and values:")
+             cookies = rum.request.headers_in:get("Cookie")
+             if cookies then
+                for k, v in string.gmatch(cookies, "([^;, =]+)=([^;, =]+)") do
+                   puts("  " .. k .. ": " .. v)
+                end
+             else
+                puts("sorry, no cookies for you")
+             end
+
+
+             -- print out query args
+             puts("\n\nquery args:")
+             qa = rum.queryarg
+             keys = qa.keys()
+             for i, v in ipairs(keys) do
+                s = ""
+                a = qa.mget(v)
+                for j, v2 in ipairs(a) do
+                   if string.len(s) > 0 then
+                      s = s .. ", "
+                   end
+                   s = s .. tostring(v2)
+                end
+                puts("  " .. tostring(v) .. " = " .. s)
+             end
+
+
+             -- print out raw (undecoded) query args
+             qa = rum.queryarg
+             puts("\n\nraw (undecoded) query args:")
+             keys = qa.keys()
+             for i, v in ipairs(keys) do
+                s = ""
+                a = qa.raw_mget(v)
+                for j, v2 in ipairs(a) do
+                   if string.len(s) > 0 then
+                      s = s .. ", "
+                   end
+                   s = s .. tostring(v2)
+                end
+                puts("  " .. tostring(v) .. " = " .. s)
+             end
+
+
+             -- print out path tokens
+             puts("\n\npath tokens:")
+             for i = 1, #rum.path.tokens do
+                puts("rum.path.tokens[" .. i .. "]: " ..
+                     rum.path.tokens[i])
+             end
+
+
+             -- print out match captures of first Path condition
+             puts("\n\nfirst path captures:")
+             for i = 1, #rum.path.captures do
+                puts("rum.path.captures[" .. i .. "]: " ..
+                     rum.path.captures[i])
+             end
+
+
+             -- print out match captures of all Path conditions
+             puts("\n\nall path captures:")
+             for i = 1, #rum.path.mcaptures do
+                puts("  path condition " .. i .. ":")
+                caps = rum.path.mcaptures[i]
+                for j = 1, #caps do
+                   puts("    " .. caps[j])
+                end
+             end
+
+
+             -- print out subrequest call chain
+             puts("\n\nsubrequest call chain:")
+             r2 = rum.request
+             repeat
+                puts("  " .. r2.uri)
+                r2 = r2.main
+             until not r2
+
+
+             -- print out internal redirect call chain
+             puts("\n\ninternal redirect call chain:")
+             r2 = rum.request
+             repeat
+                puts("  " .. r2.uri)
+                r2 = r2.prev
+             until not r2
+
+
+             -- print out some global variables defined in
+             -- the <Definitions> section
+             puts("\n\nsome global variables:")
+             puts("  someglobal1: " .. tostring(someglobal1))
+             puts("  someglobal2: " .. tostring(someglobal2))
+             puts("  someglobal3: " .. tostring(someglobal3))
+             if map1 then
+                puts("  map1[3]: " .. tostring(map1[3]))
+             else
+                puts("  map1: nil")
+             end
+             if map2 then
+                puts("  map2.scorpion: " .. tostring(map2.scorpion))
+             else
+                puts("  map2: nil")
+             end
+
+
+             -- have some interactive RUM fun when running with rumtest
+             rum.core.interactive_lua()
+
+
+             rum.core.log_info("END showme action")
+          ]]>
+        </Script>
+      </Actions>
+    </Rule>
+
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /file5
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          <![CDATA[
+             rum.core.log_info("BEG file5 action")
+
+             -- set a cookie
+             if rum.queryarg.get("cookie_me") then
+                rum.request.headers_out:add("Set-Cookie", "rum_last_access=" ..
+                                            tostring(os.time()))
+             end
+
+             rum.core.log_info("END file5 action")
+          ]]>
+        </Script>
+      </Actions>
+    </Rule>
+
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /bikes/tricycles
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <InternalRedirect>
+          /file1
+        </InternalRedirect>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /bikes/mopeds
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <ExternalRedirect>
+          /file2
+        </ExternalRedirect>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /*/scooters
+          </Pattern>
+        </Path>
+        <QueryArg>
+          <Name>
+            color
+          </Name>
+          <NameVal>
+            shape=square
+          </NameVal>
+        </QueryArg>
+      </Conditions>
+      <Actions>
+        <Script>
+          new_uri = "/file7?type=" .. rum.path.captures[1]
+          if rum.queryarg.get("color") == "red" then
+             -- default is 301 (HTTP_MOVED_PERMANENTLY)
+             rum.core.external_redirect(new_uri)
+          else
+             -- explicitly specify 302 (HTTP_MOVED_TEMPORARILY)
+             rum.core.external_redirect(new_uri, 302)
+          end
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /file3
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          -- variables defined in an action's script element are not
+          -- visible in other script elements
+          mycolor = "purple"
+        </Script>
+        <Script>
+          -- here the mycolor variable starts out as nil
+          if not mycolor then
+             mycolor = "green"
+          end
+          rum.request.headers_out:add("X-Color", mycolor)
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <RegEx>
+            ^/file[0-9]$
+          </RegEx>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          -- set some custom header
+          r.headers_out:add("X-Temperature", "cold")
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <RegEx>
+            (file[7-9])$
+          </RegEx>
+          <Pattern>
+            /(AAA|Aaa|aaa)/*
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          new_uri = "/" .. rum.path.captures[1]
+          rum.core.internal_redirect(new_uri)
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /proxyme/*
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          url = "http://factory-" .. rum.path.tokens[2] .. ".cnet.com/"
+          path = rum.queryarg.get("path")
+          if path then
+             url = url .. path
+          end
+          rum.core.proxy(url)
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /file4
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          if rum.queryarg.get("last") then
+             rum.core.last_action = true
+          end
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /file4
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          if not rum.request.notes:get("been_here") then
+             rum.request.notes:set("been_here", 1)
+             rum.core.relookup = true
+          else
+             rum.core.external_redirect("/file6")
+          end
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /groundhog/day
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <ScriptFile>
+          conf/groundhog.lua
+        </ScriptFile>
+        <Script>
+          <![CDATA[
+             rum.core.log_info("BEG groundhog/day action")
+
+             rum.core.log_info("END groundhog/day action")
+          ]]>
+        </Script>
+      </Actions>
+    </Rule>
+
+
+    <Rule>
+      <Conditions>
+        <Path>
+          <Pattern>
+            /dump-request
+          </Pattern>
+        </Path>
+      </Conditions>
+      <Actions>
+        <Script>
+          <![CDATA[
+             dump_request_rec(rum.request, "rum.request", ": ", "[", "]")
+          ]]>
+        </Script>
+      </Actions>
+    </Rule>
+
+
+  </Rules>
+
+
+</RumConf>
