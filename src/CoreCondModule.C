@@ -72,6 +72,7 @@ namespace rum
         {"log_debug", CoreCondModule::coreLogDebug},
         {"set_content_type", CoreCondModule::coreSetContentType},
         {"proxy", CoreCondModule::coreProxy},
+        {"proxy_raw", CoreCondModule::coreProxyRaw},
         {"puts", CoreCondModule::corePuts},
         {"rflush", CoreCondModule::coreRflush},
         {"rputs", CoreCondModule::coreRputs},
@@ -257,6 +258,24 @@ namespace rum
             r->args = NULL;
         }
         r->filename = apr_pstrcat(r->pool, "proxy:", url_sans_qa, NULL);
+
+        return 0;
+    }
+
+
+
+    int CoreCondModule::coreProxyRaw(lua_State *L)
+    {
+        ActionCtx *actionCtx = LuaAction::getActionCtx(L);
+        request_rec *r = actionCtx->reqCtx()->req();
+        const char *url = luaL_checkstring(L, 1);
+        RUM_LOG_ACTION(actionCtx->reqCtx()->logger(), APLOG_INFO,
+                       "proxying to raw URL: " << url);
+        r->handler = "proxy-server";
+        r->proxyreq = PROXYREQ_REVERSE;
+        r->args = NULL;
+        apr_table_setn(r->notes, "proxy-nocanon", "1");
+        r->filename = apr_pstrcat(r->pool, "proxy:", url, NULL);
 
         return 0;
     }

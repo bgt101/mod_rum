@@ -116,6 +116,7 @@ namespace rum
         static int coreLogDebug(lua_State *L);
         static int coreSetContentType(lua_State *L);
         static int coreProxy(lua_State *L);
+        static int coreProxyRaw(lua_State *L);
         static int corePuts(lua_State *L);
         static int coreRflush(lua_State *L);
         static int coreRputs(lua_State *L);
